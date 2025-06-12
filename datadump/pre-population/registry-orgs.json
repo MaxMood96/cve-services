@@ -1,0 +1,147 @@
+[
+  {
+    "UUID": "org-secretariat",
+    "long_name": "Secretariat Org",
+    "short_name": "SecretariatOrg",
+    "aliases": [],
+    "cve_program_org_function": "Secretariat",
+    "authority": {
+      "active_roles": [
+        "CNA",
+        "Top Level Root",
+        "CNA-LR",
+        "Bulk Download",
+        "SECRETARIAT"
+      ]
+    },
+    "reports_to": null,
+    "oversees": ["org-uuid-1", "org-uuid-3"],
+    "root_or_tlr": true,
+    "users": ["user-uuid-secretariat"],
+    "charter_or_scope": "All Things CVE",
+    "disclosure_policy": "When the time is right",
+    "product_list": "Product A, Product B, Product C",
+    "soft_quota": 100,
+    "hard_quota": 150,
+    "contact_info": {
+      "additional_contact_users": [],
+      "poc": "John Doe",
+      "poc_email": "john.doe@secretariat.com",
+      "poc_phone": "+1-555-001-1001",
+      "admins": [],
+      "org_email": "contact@secretariat.com",
+      "website": "https://www.cve.org"
+    },
+    "in_use": true,
+    "created": "2023-06-01T00:00:00.000Z",
+    "last_updated": "2023-06-01T00:00:00.000Z"
+  },
+  {
+    "UUID": "org-uuid-1",
+    "long_name": "Test Organization One",
+    "short_name": "TestOrg1",
+    "aliases": [
+      "TO1",
+      "Test1"
+    ],
+    "cve_program_org_function": "CNA",
+    "authority": {
+      "active_roles": [
+        "CNA"
+      ]
+    },
+    "reports_to": null,
+    "oversees": ["org-uuid-2"],
+    "root_or_tlr": true,
+    "users": ["user-uuid-1"],
+    "charter_or_scope": "Responsible for technology sector vulnerabilities",
+    "disclosure_policy": "90-day disclosure policy",
+    "product_list": "Product A, Product B, Product C",
+    "soft_quota": 100,
+    "hard_quota": 150,
+    "contact_info": {
+      "additional_contact_users": [],
+      "poc": "John Doe",
+      "poc_email": "john.doe@testorg1.com",
+      "poc_phone": "+1-555-001-1001",
+      "admins": ["user-uuid-1"],
+      "org_email": "contact@testorg1.com",
+      "website": "https://www.testorg1.com"
+    },
+    "in_use": true,
+    "created": "2023-06-01T00:00:00.000Z",
+    "last_updated": "2023-06-01T00:00:00.000Z"
+  },
+  {
+    "UUID": "org-uuid-2",
+    "long_name": "Security Solutions Inc.",
+    "short_name": "SecSol",
+    "aliases": [
+      "SSI",
+      "SecInc"
+    ],
+    "cve_program_org_function": "CNA",
+    "authority": {
+      "active_roles": [
+        "CNA"
+      ]
+    },
+    "reports_to": "org-uuid-1",
+    "oversees": [],
+    "root_or_tlr": true,
+    "users": ["user-uuid-2"],
+    "charter_or_scope": "Focused on cybersecurity software vulnerabilities",
+    "disclosure_policy": "60-day responsible disclosure policy",
+    "product_list": "SecureShield, CyberGuard, DataDefender",
+    "soft_quota": 75,
+    "hard_quota": 100,
+    "contact_info": {
+      "additional_contact_users": [],
+      "poc": "Jane Smith",
+      "poc_email": "jane.smith@secsol.com",
+      "poc_phone": "+1-555-002-2002",
+      "admins": ["user-uuid-2"],
+      "org_email": "info@secsol.com",
+      "website": "https://www.secsol.com"
+    },
+    "in_use": true,
+    "created": "2023-06-02T00:00:00.000Z",
+    "last_updated": "2023-06-02T00:00:00.000Z"
+  },
+  {
+    "UUID": "org-uuid-3",
+    "long_name": "Global Network Systems",
+    "short_name": "GNS",
+    "aliases": [
+      "GlobalNet",
+      "NetSys"
+    ],
+    "cve_program_org_function": "CNA",
+    "authority": {
+      "active_roles": [
+        "CNA"
+      ]
+    },
+    "reports_to": null,
+    "oversees": [],
+    "root_or_tlr": false,
+    "users": ["user-uuid-3"],
+    "charter_or_scope": "Specializing in network infrastructure vulnerabilities",
+    "disclosure_policy": "45-day coordinated disclosure policy",
+    "product_list": "NetRouter, CloudConnect, SecureSwitch",
+    "soft_quota": 120,
+    "hard_quota": 180,
+    "contact_info": {
+      "additional_contact_users": [],
+      "poc": "Michael Johnson",
+      "poc_email": "michael.johnson@gns.com",
+      "poc_phone": "+1-555-003-3003",
+      "admins": ["user-uuid-3"],
+      "org_email": "contact@gns.com",
+      "website": "https://www.gns.com"
+    },
+    "in_use": true,
+    "created": "2023-06-03T00:00:00.000Z",
+    "last_updated": "2023-06-03T00:00:00.000Z"
+  }
+]
