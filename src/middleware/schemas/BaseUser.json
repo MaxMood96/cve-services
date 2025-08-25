@@ -1,0 +1,77 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "/BaseUser",
+    "type": "object",
+    "title": "CVE Base User Schema",
+    "description": "The schema for CVE Services Users",
+    "definitions": {
+        "uuidType": {
+            "description": "A version 4 (random) universally unique identifier (UUID) as defined by [RFC 4122](https://tools.ietf.org/html/rfc4122#section-4.1.3).",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+        },
+        "name": {
+            "description": "User's name components",
+            "type": "object",
+            "required": [
+                "first",
+                "last"
+            ],
+            "properties": {
+                "first": {
+                    "type": "string",
+                    "maxLength": 100
+                },
+                "middle": {
+                    "type": "string",
+                    "maxLength": 100
+                },
+                "last": {
+                    "type": "string",
+                    "maxLength": 100
+                },
+                "suffix": {
+                    "type": "string",
+                    "maxLength": 100
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "properties": {
+        "name": {
+            "$ref": "#/definitions/name"
+        },
+        "username": {
+            "description": "Username should be 3-128 characters. Allowed characters are alphanumeric and -_@.",
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9\\-_@.]{3,128}$"
+        },
+        "secret": {
+            "description": "Hashed secret for user authentication",
+            "type": "string"
+        },
+        "UUID": {
+            "$ref": "#/definitions/uuidType"
+        },
+        "role": {
+          "description": "Users permissions, Like ADMIN",
+          "type": "string",
+          "enum": ["ADMIN"]
+        },
+        "status": {
+            "description": "User status: 'active' or 'inactive'",
+            "type": "string",
+            "enum": [
+                "active",
+                "inactive"
+            ]
+        }
+    },
+    "required": [
+        "username"
+    ]
+}
