@@ -1,0 +1,47 @@
+const mongoose = require('mongoose')
+const fs = require('fs')
+const aggregatePaginate = require('mongoose-aggregate-paginate-v2')
+const MongoPaging = require('mongo-cursor-pagination')
+const Ajv = require('ajv')
+const addFormats = require('ajv-formats')
+const AuditSchemaJSON = JSON.parse(fs.readFileSync('src/middleware/schemas/Audit.json'))
+
+// Initialize AJV
+const ajv = new Ajv({ allErrors: true })
+addFormats(ajv)
+
+// Compile validation function
+const validate = ajv.compile(AuditSchemaJSON)
+
+const schema = {
+  uuid: { type: String, index: true },
+  target_uuid: { type: String, required: true },
+  history: [{
+    timestamp: { type: Date, default: Date.now },
+    audit_object: { type: mongoose.Schema.Types.Mixed, required: true },
+    change_author: { type: String, required: true }
+  }]
+}
+
+// Create Mongoose Schema
+const AuditSchema = new mongoose.Schema(schema, {
+  collection: 'Audit',
+  timestamps: { createdAt: 'created', updatedAt: 'last_updated' }
+})
+
+AuditSchema.statics.validateAudit = function (record) {
+  const validateObject = {}
+  validateObject.isValid = validate(record)
+
+  if (!validateObject.isValid) {
+    validateObject.errors = validate.errors
+  }
+  return validateObject
+}
+
+AuditSchema.plugin(aggregatePaginate)
+AuditSchema.plugin(MongoPaging.mongoosePlugin)
+
+// Create and export model
+const Audit = mongoose.model('Audit', AuditSchema)
+module.exports = Audit
