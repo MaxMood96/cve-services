@@ -1,0 +1,188 @@
+/* eslint-disable no-unused-expressions */
+
+const chai = require('chai')
+const expect = chai.expect
+
+const { purlValidateHelper } = require('../../../src/controller/cve.controller/cve.middleware')
+
+// Series of PURLS for testing
+const validPurlRecord = [
+  {
+    packageURL: 'pkg:npm/nanoid#/home../'
+  }
+]
+
+const validMultiplePurlRecords = [
+  {
+    packageURL: 'pkg:npm/%40angular/cli'
+  },
+  {
+    packageURL: 'pkg:gem/rails'
+  },
+  {
+    packageURL: 'pkg:maven/org.apache.commons/commons-io?packaging=jar'
+  },
+  {
+    packageURL: 'pkg:npm/foo/bar?q=1&s=2#sub/path'
+  },
+  {
+    packageURL: 'pkg:rpm/opensuse/curl?arch=i386&distro=opensuse-tumbleweed'
+  },
+  {
+    packageURL: 'pkg:golang/google.golang.org/genproto#googleapis/api/annotations'
+  },
+  {
+    packageURL: 'pkg:docker/customer/dockerimage?repository_url=gcr.io'
+  }
+]
+
+const PurlRecordNoPKG = [
+  {
+    packageURL: ':npm/nanoid#/home../'
+  }
+]
+
+const PurlRecordVersion = [
+  {
+    packageURL: 'pkg:npm/foo/bar@1.2.3?q=1&s=2#sub/path'
+  }
+]
+
+const RecordQualifierVersionPurl = [
+  {
+    packageURL: 'pkg:pypi/django?vers=vers:pypi%2F%3E%3D1.11.0%7C%21%3D1.11.1%7C%3C2.0.0'
+  }
+]
+const PurlRecordEmptySubpath = [
+  {
+    packageURL: 'pkg:npm/foo/bar?q=1&s=2#test//'
+  }
+]
+
+const PurlRecordOnlySlashSubpath = [
+  {
+    packageURL: 'pkg:npm/foo/bar?q=1&s=2#test///'
+  }
+]
+
+const PurlRecordOnlyDoublePeriodSubpath = [
+  {
+    packageURL: 'pkg:npm/foo/bar?q=1&s=2#../'
+  }
+]
+
+const PurlRecordOnlySinglePeriodSubpath = [
+  {
+    packageURL: 'pkg:npm/foo/bar?q=1&s=2#./'
+  }
+]
+
+const PurlRecordPoundSymbolEmpty = [
+  {
+    packageURL: 'pkg:npm/foo/bar?q=1&s=2#'
+  }
+]
+
+const MultipleRecordsOneInvalid = [
+  {
+    packageURL: 'pkg:npm/foo/bar?q=1&s=2#./'
+  },
+  {
+    packageURL: 'pkg:npm/%40angular/cli'
+  },
+  {
+    packageURL: 'pkg:gem/rails'
+  },
+  {
+    packageURL: 'pkg:maven/org.apache.commons/commons-io?packaging=jar'
+  },
+  {
+    packageURL: 'pkg:npm/foo/bar?q=1&s=2#sub/path'
+  },
+  {
+    packageURL: 'pkg:rpm/opensuse/curl?arch=i386&distro=opensuse-tumbleweed'
+  }
+]
+
+const PurlEncodedColonRecord = [
+  {
+    packageURL: 'pkg:pypi/django#%3A'
+  }
+]
+
+const RecordNoPurl = [
+  {
+    test: 'testing String'
+  }
+]
+
+const PurlQualifierKeyNoValueRecord = [
+  {
+    packageURL: 'pkg:npm/package-name?qualifier&test=value'
+  }
+]
+
+describe('Testing validatePURL middleware', () => {
+  context('Positive Tests', () => {
+    it('Should validate a correctly formatted PURL ', () => {
+      const result = purlValidateHelper(validPurlRecord)
+      expect(result).to.be.true
+    })
+
+    it('Should validate multiple correctly formatted PURLs ', () => {
+      const result = purlValidateHelper(validMultiplePurlRecords)
+      expect(result).to.be.true
+    })
+
+    it('Should validate when no PURL object is present ', () => {
+      const result = purlValidateHelper(RecordNoPurl)
+      expect(result).to.be.true
+    })
+  })
+
+  context('Negative Tests', () => {
+    it('Should fail to validate a PURL object missing the PKG component ', () => {
+      expect(() => purlValidateHelper(PurlRecordNoPKG)).to.throw('Invalid purl: failed to parse as URL: "' + PurlRecordNoPKG[0].packageURL + '"')
+    })
+
+    it('Should fail to validate a PURL object with a version component ', () => {
+      expect(() => purlValidateHelper(PurlRecordVersion)).to.throw('The PURL version component is currently not supported by the CVE schema: ' + PurlRecordVersion[0].packageURL)
+    })
+
+    it('Should fail to validate a PURL object with one non-empty subpath and at least one empty subpath ', () => {
+      expect(() => purlValidateHelper(PurlRecordEmptySubpath)).to.throw('Subpaths cannot be empty or contain only a /: ' + PurlRecordEmptySubpath[0].packageURL)
+    })
+
+    it('Should fail to validate a PURL object with a subpath containing only a "/" ', () => {
+      expect(() => purlValidateHelper(PurlRecordOnlySlashSubpath)).to.throw('Subpaths cannot be empty or contain only a /: ' + PurlRecordOnlySlashSubpath[0].packageURL)
+    })
+
+    it('Should fail to validate a PURL object with a subpath equal to "." ', () => {
+      expect(() => purlValidateHelper(PurlRecordOnlySinglePeriodSubpath)).to.throw('Subpaths cannot be "." or "..": ' + PurlRecordOnlySinglePeriodSubpath[0].packageURL)
+    })
+
+    it('Should fail to validate a PURL object with a subpath equal to ".." ', () => {
+      expect(() => purlValidateHelper(PurlRecordOnlyDoublePeriodSubpath)).to.throw('Subpaths cannot be "." or "..": ' + PurlRecordOnlyDoublePeriodSubpath[0].packageURL)
+    })
+
+    it('Should fail to validate a PURL object with a # symbol but no subpath ', () => {
+      expect(() => purlValidateHelper(PurlRecordPoundSymbolEmpty)).to.throw('Subpaths cannot be empty or contain only a /: ' + PurlRecordPoundSymbolEmpty[0].packageURL)
+    })
+
+    it('Should fail to validate when at least one PURL object in an array is invalid ', () => {
+      expect(() => purlValidateHelper(MultipleRecordsOneInvalid)).to.throw('Subpaths cannot be "." or "..": ' + PurlRecordOnlySinglePeriodSubpath[0].packageURL)
+    })
+
+    it('Should fail to validate when a version is passed in the qualifier component ', () => {
+      expect(() => purlValidateHelper(RecordQualifierVersionPurl)).to.throw('PURL versions are currently not supported by the CVE schema: ' + RecordQualifierVersionPurl[0].packageURL)
+    })
+
+    it('Should fail to validate when a qualifier has a key and no value ', () => {
+      expect(() => purlValidateHelper(PurlQualifierKeyNoValueRecord)).to.throw('Qualifier keys must have a value: ' + PurlQualifierKeyNoValueRecord[0].packageURL)
+    })
+
+    it('Should fail to validate when a PURL contain an encoded colon ', () => {
+      expect(() => purlValidateHelper(PurlEncodedColonRecord)).to.throw('Percent-encoded colons are not allowed in a PURL: ' + PurlEncodedColonRecord[0].packageURL)
+    })
+  })
+})
