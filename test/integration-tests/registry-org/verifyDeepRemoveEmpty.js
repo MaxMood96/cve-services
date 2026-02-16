@@ -1,0 +1,65 @@
+/* eslint-disable no-unused-expressions */
+const chai = require('chai')
+const expect = chai.expect
+chai.use(require('chai-http'))
+
+const constants = require('../constants.js')
+const app = require('../../../src/index.js')
+
+const secretariatHeaders = { ...constants.headers, 'content-type': 'application/json' }
+
+const testNullRemovalOrg = {
+  short_name: 'test_null_removal',
+  long_name: 'Test Null Removal Org',
+  authority: ['CNA'],
+  hard_quota: 1000,
+  contact_info: {
+    website: null, // Should be removed
+    org_email: undefined // Should be removed (or not present)
+  }
+}
+
+describe('Testing Deep Remove Empty in Create Org', () => {
+  context('Positive Tests', () => {
+    it('Creates a registry org and verifies null values are removed', async () => {
+      await chai.request(app)
+        .post('/api/registryOrg')
+        .set(secretariatHeaders)
+        .send(testNullRemovalOrg)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          if (res.status !== 200) {
+            console.log('Test failed with status:', res.status)
+            console.log('Response body:', JSON.stringify(res.body, null, 2))
+          }
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('created')
+          const createdOrg = res.body.created
+
+          expect(createdOrg).to.haveOwnProperty('short_name')
+          expect(createdOrg.short_name).to.equal(testNullRemovalOrg.short_name)
+
+          // Verify contact_info exists but does NOT contain website or org_email
+          // Ideally if contact_info becomes empty, deepRemoveEmpty might remove the whole object if it recurses well.
+          // Let's check what happened.
+          if (createdOrg.contact_info) {
+            expect(createdOrg.contact_info).to.not.have.property('website')
+            expect(createdOrg.contact_info).to.not.have.property('org_email')
+            // If deepRemoveEmpty works on nested empty objects, contact_info might be gone or empty.
+            expect(Object.keys(createdOrg.contact_info)).to.be.empty
+          } else {
+            // This is also acceptable if deepRemoveEmpty removes empty objects
+            expect(createdOrg).to.not.have.property('contact_info')
+          }
+        })
+    })
+
+    after(async () => {
+      // Cleanup: Delete the created org
+      await chai.request(app)
+        .delete('/api/registryOrg/test_null_removal')
+        .set(secretariatHeaders)
+    })
+  })
+})

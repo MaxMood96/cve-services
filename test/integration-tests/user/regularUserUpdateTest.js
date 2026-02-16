@@ -1,0 +1,109 @@
+const chai = require('chai')
+const chaiHttp = require('chai-http')
+const expect = chai.expect
+const app = require('../../../src/index.js')
+
+chai.use(chaiHttp)
+
+const regularUserHeaders = {
+  'CVE-API-ORG': 'win_5',
+  'CVE-API-Key': 'TCF25YM-39C4H6D-KA32EGF-V5XSHN3',
+  'CVE-API-USER': 'jasminesmith@win_5.com'
+}
+
+describe('Regular User Self-Update Tests', () => {
+  let user
+  beforeEach(async () => {
+    // get the jasmines user
+    await chai.request(app)
+      .get('/api/registry/org/win_5/user/jasminesmith@win_5.com')
+      .set(regularUserHeaders)
+      .then((res) => {
+        expect(res).to.have.status(200)
+        expect(res.body.username).to.equal('jasminesmith@win_5.com')
+        user = res.body
+      })
+  })
+  it('Should allow regular user to update their own contact info (name)', async () => {
+    await chai.request(app)
+      .put('/api/registry/org/win_5/user/jasminesmith@win_5.com')
+      .set(regularUserHeaders)
+      .send({
+        ...user,
+        name: {
+          first: 'JasmineUpdated',
+          last: 'Smith'
+        }
+      })
+      .then((res) => {
+        expect(res).to.have.status(200)
+        expect(res.body.updated.name.first).to.equal('JasmineUpdated')
+      })
+  })
+
+  it('Should return 400 when regular user tries to update restricted field (status)', async () => {
+    await chai.request(app)
+      .put('/api/registry/org/win_5/user/jasminesmith@win_5.com')
+      .set(regularUserHeaders)
+      .send({
+        ...user,
+        name: {
+          first: 'Jasmine',
+          last: 'Smith'
+        },
+        status: 'inactive' // Trying to deactivate self should be restricted
+      })
+      .then((res) => {
+        expect(res).to.have.status(400)
+        expect(res.body.error).to.contain('NOT_ALLOWED_TO_CHANGE_FIELD')
+        expect(res.body.message).to.contain('Regular users can only update their contact info')
+      })
+  })
+
+  it('Should return 400 when regular user tries to update restricted field (roles)', async () => {
+    await chai.request(app)
+      .put('/api/registry/org/win_5/user/jasminesmith@win_5.com')
+      .set(regularUserHeaders)
+      .send({
+        ...user,
+        name: {
+          first: 'Jasmine',
+          last: 'Smith'
+        },
+        authority: ['ADMIN']
+      })
+      .then((res) => {
+        expect(res).to.have.status(400)
+        expect(res.body.error).to.contain('NOT_ALLOWED_TO_CHANGE_FIELD')
+        expect(res.body.message).to.contain('Regular users can only update their contact info')
+      })
+  })
+
+  it('Should allow update if restricted field is sent but unchanged', async () => {
+    // First get the user to know current state
+    let currentUser
+    await chai.request(app)
+      .get('/api/registry/org/win_5/user/jasminesmith@win_5.com')
+      .set(regularUserHeaders)
+      .then((res) => {
+        currentUser = res.body
+      })
+
+    await chai.request(app)
+      .put('/api/registry/org/win_5/user/jasminesmith@win_5.com')
+      .set(regularUserHeaders)
+      .send({
+        ...user,
+        name: {
+          first: 'JasmineUnchangedTest',
+          last: 'Smith'
+        },
+        username: currentUser.username, // Sending same username
+        status: currentUser.status // Sending same status
+      })
+      .then((res) => {
+        expect(res).to.have.status(200)
+        expect(res.body.updated.name.first).to.equal('JasmineUnchangedTest')
+      })
+  })
+})
