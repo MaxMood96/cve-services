@@ -1,0 +1,414 @@
+const mongoose = require('mongoose')
+const logger = require('../../middleware/logger')
+const errors = require('./error')
+const error = new errors.AuditControllerError()
+const validateUUID = require('uuid').validate
+
+/**
+ * Create a new audit document
+ * Called by POST /api/audit/org/
+ */
+async function createAuditDocumentForOrg (req, res, next) {
+  try {
+    const session = await mongoose.startSession()
+    const repo = req.ctx.repositories.getAuditRepository()
+    const orgRepo = req.ctx.repositories.getBaseOrgRepository()
+    const body = req.ctx.body
+    let returnValue
+
+    if (body?.uuid ?? null) {
+      return res.status(400).json(error.uuidProvided('audit'))
+    }
+
+    if (!body.target_uuid) {
+      logger.info({ uuid: req.ctx.uuid, message: 'Missing required field: target_uuid' })
+      return res.status(400).json(error.missingRequiredField('target_uuid'))
+    }
+
+    if (!validateUUID(body.target_uuid)) {
+      logger.info({ uuid: req.ctx.uuid, message: 'Invalid target_uuid format' })
+      return res.status(400).json(error.invalidUUID('target_uuid'))
+    }
+
+    try {
+      session.startTransaction()
+
+      // Validate the audit document against the schema
+      const auditValidation = await repo.validateAudit(body, { session })
+      if (!auditValidation.isValid) {
+        logger.error({ uuid: req.ctx.uuid, message: 'Audit document validation FAILED' })
+        await session.abortTransaction()
+        return res.status(400).json(
+          error.invalidAuditObject()
+        )
+      }
+
+      // Check if audit document already exists
+      const exists = await repo.findOneByTargetUUID(body.target_uuid, { session })
+      if (exists) {
+        logger.info({ uuid: req.ctx.uuid, message: `Audit document was not created because one already exists for target_uuid: ${body.target_uuid}` })
+        await session.abortTransaction()
+        return res.status(400).json(error.auditExists(body.target_uuid))
+      }
+
+      // Check if target org exists first
+      const targetOrg = await orgRepo.getOrg(body.target_uuid, true, { session })
+      if (!targetOrg) {
+        logger.info({ uuid: req.ctx.uuid, message: `No organization found with UUID ${body.target_uuid}` })
+        await session.abortTransaction()
+        return res.status(404).json(error.orgDne(body.target_uuid))
+      }
+
+      // Validate initial history entries if provided
+      if (body.history && body.history.length > 0) {
+        for (const entry of body.history) {
+          if (!entry.audit_object) {
+            logger.info({ uuid: req.ctx.uuid, message: 'Missing audit_object in history entry' })
+            await session.abortTransaction()
+            return res.status(400).json(error.missingRequiredField('audit_object'))
+          }
+          if (!entry.change_author) {
+            logger.info({ uuid: req.ctx.uuid, message: 'Missing change_author in history entry' })
+            await session.abortTransaction()
+            return res.status(400).json(error.missingRequiredField('change_author'))
+          }
+
+          // Process entry immediately after validation
+          returnValue = await repo.appendToAuditHistoryForOrg(
+            body.target_uuid,
+            entry.audit_object,
+            entry.change_author,
+            { session, upsert: true }
+          )
+        }
+      } else {
+        // Create audit document with initial empty entry or default entry
+        returnValue = await repo.appendToAuditHistoryForOrg(
+          body.target_uuid,
+          body.audit_object || {},
+          body.change_author || req.ctx.org,
+          { session, upsert: true }
+        )
+      }
+
+      await session.commitTransaction()
+
+      logger.info({
+        uuid: req.ctx.uuid,
+        message: `Audit document created for target_uuid ${body.target_uuid}`,
+        audit_uuid: returnValue.uuid
+      })
+    } catch (err) {
+      await session.abortTransaction()
+      throw err
+    } finally {
+      await session.endSession()
+    }
+
+    return res.status(200).json({ message: 'Audit ' + returnValue.uuid + ' was successfully created.', created: returnValue })
+  } catch (err) {
+    next(err)
+  }
+}
+
+/**
+ * Append a new entry to the audit history (Secretariat only)
+ * Called by PUT /api/audit/org/
+ * Allows for multiple appends in a single request
+ */
+async function appendToAuditHistoryForOrg (req, res, next) {
+  try {
+    const session = await mongoose.startSession()
+    const repo = req.ctx.repositories.getAuditRepository()
+    const orgRepo = req.ctx.repositories.getBaseOrgRepository()
+    const body = req.ctx.body
+    let returnValue
+
+    // Requiring target_uuid to validate audit_object easily.
+    // TODO: will need to query by uuid instead if target_uuid should be optional in the future
+    if (!body.target_uuid) {
+      logger.info({ uuid: req.ctx.uuid, message: 'Missing required field: target_uuid' })
+      return res.status(400).json(error.missingRequiredField('target_uuid'))
+    }
+
+    if (!validateUUID(body.target_uuid)) {
+      logger.info({ uuid: req.ctx.uuid, message: 'Invalid target_uuid format' })
+      return res.status(400).json(error.invalidUUID('target_uuid'))
+    }
+
+    try {
+      session.startTransaction()
+
+      // Validate the audit document against the schema
+      const auditValidation = await repo.validateAudit(body, { session })
+      if (!auditValidation.isValid) {
+        logger.error({ uuid: req.ctx.uuid, message: 'Audit document validation FAILED' })
+        await session.abortTransaction()
+        return res.status(400).json(
+          error.invalidAuditObject()
+        )
+      }
+
+      // Check if target org exists first
+      const targetOrg = await orgRepo.getOrg(body.target_uuid, true, { session })
+      if (!targetOrg) {
+        logger.info({ uuid: req.ctx.uuid, message: `No organization found with UUID ${body.target_uuid}` })
+        await session.abortTransaction()
+        return res.status(404).json(error.orgDne(body.target_uuid))
+      }
+      // Process each history entry
+      for (const entry of body.history) {
+        if (!entry.audit_object) {
+          logger.info({ uuid: req.ctx.uuid, message: 'Missing audit_object in history entry' })
+          await session.abortTransaction()
+          return res.status(400).json(error.missingRequiredField('audit_object'))
+        }
+
+        // Append this history entry
+        returnValue = await repo.appendToAuditHistoryForOrg(
+          body.target_uuid,
+          entry.audit_object,
+          entry.change_author,
+          { session }
+        )
+
+        if (!returnValue) {
+          logger.info({ uuid: req.ctx.uuid, message: `No audit document found for target_uuid ${body.target_uuid}` })
+          await session.abortTransaction()
+          return res.status(404).json(error.auditDneByTarget(body.target_uuid))
+        }
+      }
+
+      await session.commitTransaction()
+
+      logger.info({
+        uuid: req.ctx.uuid,
+        message: `${body.history.length} audit entry(ies) appended for target_uuid ${body.target_uuid}`,
+        change_author: body.change_author
+      })
+    } catch (err) {
+      await session.abortTransaction()
+      throw err
+    } finally {
+      await session.endSession()
+    }
+
+    return res.status(200).json({
+      message: `${body.history.length} audit entry(ies) for ${body.target_uuid} was successfully appended.`,
+      updated: returnValue
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+/**
+ * Get all audit documents
+ * Called by GET /api/audit/org/
+ */
+async function getAllOrgAuditDocuments (req, res, next) {
+  try {
+    const session = await mongoose.startSession()
+    const repo = req.ctx.repositories.getAuditRepository()
+    let returnValue
+
+    try {
+      returnValue = await repo.findAllAuditDocuments({ session })
+    } finally {
+      await session.endSession()
+    }
+
+    logger.info({ uuid: req.ctx.uuid, message: 'All audit documents sent to user' })
+    return res.status(200).json(returnValue)
+  } catch (err) {
+    next(err)
+  }
+}
+
+/**
+ * Get audit document by its document UUID
+ * Called by GET /api/audit/org/document/:document_uuid
+ */
+async function getOrgAuditByDocumentUUID (req, res, next) {
+  try {
+    const session = await mongoose.startSession()
+    const repo = req.ctx.repositories.getAuditRepository()
+    const documentUUID = req.ctx.params.document_uuid
+    let returnValue
+
+    if (!documentUUID) {
+      logger.info({ uuid: req.ctx.uuid, message: 'Missing audit uuid parameter' })
+      return res.status(400).json(error.missingRequiredField('document_uuid'))
+    }
+
+    if (!validateUUID(documentUUID)) {
+      logger.info({ uuid: req.ctx.uuid, message: 'Invalid document_uuid format' })
+      return res.status(400).json(error.invalidUUID('document_uuid'))
+    }
+
+    try {
+      returnValue = await repo.findOneByUUID(documentUUID, { session })
+
+      if (!returnValue) {
+        logger.info({ uuid: req.ctx.uuid, message: `No audit document found with UUID ${documentUUID}` })
+        return res.status(404).json(error.auditDneByDocument(documentUUID))
+      }
+    } finally {
+      await session.endSession()
+    }
+
+    logger.info({ uuid: req.ctx.uuid, message: `Audit document ${documentUUID} sent to user` })
+    return res.status(200).json(returnValue)
+  } catch (err) {
+    next(err)
+  }
+}
+
+/**
+ * Get audit history by target identifier (shortname or UUID)
+ * Called by GET /api/audit/org/:identifier
+ */
+async function getOrgAuditByOrgIdentifier (req, res, next) {
+  try {
+    const session = await mongoose.startSession()
+    const repo = req.ctx.repositories.getAuditRepository()
+    const orgRepo = req.ctx.repositories.getBaseOrgRepository()
+    const identifier = req.ctx.params.org_identifier
+    const identifierIsUUID = validateUUID(identifier)
+    let returnValue
+
+    if (!identifier) {
+      return res.status(400).json(error.missingRequiredField('identifier'))
+    }
+
+    try {
+      session.startTransaction()
+
+      // Find the target organization by either UUID or shortname
+      const targetOrg = identifierIsUUID
+        ? await orgRepo.findOneByUUID(identifier, { session })
+        : await orgRepo.findOneByShortName(identifier, { session })
+
+      if (!targetOrg) {
+        logger.info({
+          uuid: req.ctx.uuid,
+          message: `No organization found with ${identifierIsUUID ? 'UUID' : 'shortname'} ${identifier}`
+        })
+        await session.abortTransaction()
+        return res.status(404).json(error.orgDne(identifier))
+      }
+
+      // Get the org's UUID for audit lookup
+      const targetUUID = targetOrg.UUID
+
+      returnValue = await repo.findOneByTargetUUID(targetUUID, { session })
+
+      if (!returnValue) {
+        logger.info({
+          uuid: req.ctx.uuid,
+          message: `No audit history found for organization ${identifier} (UUID: ${targetUUID})`
+        })
+        await session.abortTransaction()
+        return res.status(404).json(error.auditDneByTarget(identifier))
+      }
+
+      await session.commitTransaction()
+    } catch (err) {
+      await session.abortTransaction()
+      throw err
+    } finally {
+      await session.endSession()
+    }
+
+    logger.info({
+      uuid: req.ctx.uuid,
+      message: `Audit history for ${identifierIsUUID ? 'UUID' : 'shortname'} ${identifier} sent to user ${req.ctx.user}`
+    })
+    return res.status(200).json(returnValue)
+  } catch (err) {
+    next(err)
+  }
+}
+
+/**
+ * Get last X changes for an organization
+ * Called by GET /api/audit/org/:target_uuid/:number_of_changes
+ */
+async function getLastXChanges (req, res, next) {
+  try {
+    const session = await mongoose.startSession()
+    const repo = req.ctx.repositories.getAuditRepository()
+    const orgRepo = req.ctx.repositories.getBaseOrgRepository()
+    const identifier = req.ctx.params.org_identifier
+    const identifierIsUUID = validateUUID(identifier)
+    const numberOfChanges = parseInt(req.ctx.params.number_of_changes)
+    let returnValue
+
+    if (!identifier) {
+      return res.status(400).json(error.missingRequiredField('identifier'))
+    }
+
+    if (isNaN(numberOfChanges) || numberOfChanges < 1) {
+      logger.info({ uuid: req.ctx.uuid, message: 'Invalid number_of_changes parameter' })
+      return res.status(400).json(error.invalidNumberOfChanges())
+    }
+
+    try {
+      session.startTransaction()
+
+      // Find the target organization by either UUID or shortname
+      const targetOrg = identifierIsUUID
+        ? await orgRepo.findOneByUUID(identifier, { session })
+        : await orgRepo.findOneByShortName(identifier, { session })
+
+      if (!targetOrg) {
+        logger.info({
+          uuid: req.ctx.uuid,
+          message: `No organization found with ${identifierIsUUID ? 'UUID' : 'shortname'} ${identifier}`
+        })
+        await session.abortTransaction()
+        return res.status(404).json(error.orgDne(identifier))
+      }
+
+      // Get the org's UUID for audit lookup
+      const targetUUID = targetOrg.UUID
+
+      const lastChanges = await repo.getLastXChanges(targetUUID, numberOfChanges, { session })
+
+      if (!lastChanges || lastChanges.length === 0) {
+        logger.info({ uuid: req.ctx.uuid, message: `No audit history found for organization ${targetUUID}` })
+        await session.abortTransaction()
+        return res.status(404).json(error.auditDneByTarget(targetUUID))
+      }
+
+      returnValue = {
+        target_uuid: targetUUID,
+        changes: lastChanges
+      }
+
+      await session.commitTransaction()
+    } catch (err) {
+      await session.abortTransaction()
+      throw err
+    } finally {
+      await session.endSession()
+    }
+
+    logger.info({
+      uuid: req.ctx.uuid,
+      message: `Last ${numberOfChanges} changes for ${identifier} sent to user ${req.ctx.user}`
+    })
+    return res.status(200).json(returnValue)
+  } catch (err) {
+    next(err)
+  }
+}
+
+module.exports = {
+  AUDIT_CREATE_SINGLE: createAuditDocumentForOrg,
+  AUDIT_UPDATE: appendToAuditHistoryForOrg,
+  AUDIT_GET_ALL: getAllOrgAuditDocuments,
+  AUDIT_GET_BY_UUID: getOrgAuditByDocumentUUID,
+  AUDIT_GET_BY_ORG_IDENTIFIER: getOrgAuditByOrgIdentifier,
+  AUDIT_GET_LAST: getLastXChanges
+}

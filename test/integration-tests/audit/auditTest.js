@@ -1,0 +1,317 @@
+/* eslint-disable no-unused-expressions */
+
+const chai = require('chai')
+chai.use(require('chai-http'))
+const expect = chai.expect
+
+const constants = require('../constants.js')
+const app = require('../../../src/index.js')
+const uuid = require('uuid')
+
+describe('Testing Audit Org endpoints', () => {
+  let orgUuid
+  let testAuditUUID
+  let changeAuthorUUID
+
+  // Setup: Get real org UUID before tests
+  before(async () => {
+    await chai.request(app)
+      .get('/api/org/win_5/users')
+      .set(constants.headers)
+      .then((res, err) => {
+        expect(err).to.be.undefined
+        expect(res).to.have.status(200)
+        orgUuid = res.body.users[0].org_UUID
+        changeAuthorUUID = res.body.users[0].UUID
+      })
+  })
+
+  context('Positive Tests', () => {
+    it('Should create a new audit document', async () => {
+      const auditData = {
+        target_uuid: orgUuid,
+        history: [
+          {
+            audit_object: {
+              ...constants.existingOrg
+            },
+            change_author: changeAuthorUUID
+          }
+        ]
+      }
+
+      await chai.request(app)
+        .post('/api/audit/org/')
+        .set(constants.headers)
+        .send(auditData)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.include('was successfully created')
+
+          expect(res.body).to.haveOwnProperty('created')
+          expect(res.body.created).to.haveOwnProperty('uuid')
+          expect(res.body.created).to.haveOwnProperty('target_uuid')
+          expect(res.body.created.target_uuid).to.equal(orgUuid)
+          expect(res.body.created).to.haveOwnProperty('history')
+          expect(res.body.created.history).to.be.an('array')
+          expect(res.body.created.history).to.have.lengthOf(1)
+          expect(res.body.created.history[0]).to.haveOwnProperty('timestamp')
+          expect(res.body.created.history[0]).to.haveOwnProperty('audit_object')
+          expect(res.body.created.history[0].audit_object).to.deep.equal(constants.existingOrg)
+          expect(res.body.created.history[0]).to.haveOwnProperty('change_author')
+          expect(res.body.created.history[0].change_author).to.equal(changeAuthorUUID)
+
+          testAuditUUID = res.body.created.uuid
+        })
+    })
+
+    it('Should append a new entry to audit history', async () => {
+      const appendData = {
+        target_uuid: orgUuid,
+        history: [
+          {
+            audit_object: {
+              ...constants.existingOrg,
+              name: 'test-new-org-name'
+            },
+            change_author: changeAuthorUUID
+          }
+        ]
+      }
+
+      await chai.request(app)
+        .put('/api/audit/org/')
+        .set(constants.headers)
+        .send(appendData)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.include('was successfully appended')
+
+          expect(res.body).to.haveOwnProperty('updated')
+          expect(res.body.updated).to.haveOwnProperty('history')
+          expect(res.body.updated.history).to.be.an('array')
+          expect(res.body.updated.history).to.have.lengthOf(2)
+        })
+    })
+
+    it('Should get all audit documents', async () => {
+      await chai.request(app)
+        .get('/api/audit/org/')
+        .set(constants.headers)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.be.an('array')
+          expect(res.body.length).to.be.at.least(1)
+
+          const testAudit = res.body.find(audit => audit.uuid === testAuditUUID)
+          expect(testAudit).to.exist
+          expect(testAudit.target_uuid).to.equal(orgUuid)
+        })
+    })
+
+    it('Should get audit document by UUID', async () => {
+      await chai.request(app)
+        .get(`/api/audit/org/document/${testAuditUUID}`)
+        .set(constants.headers)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('uuid')
+          expect(res.body.uuid).to.equal(testAuditUUID)
+          expect(res.body).to.haveOwnProperty('target_uuid')
+          expect(res.body.target_uuid).to.equal(orgUuid)
+          expect(res.body).to.haveOwnProperty('history')
+          expect(res.body.history).to.be.an('array')
+          expect(res.body.history.length).to.be.at.least(2)
+        })
+    })
+
+    it('Should get audit history by target UUID', async () => {
+      await chai.request(app)
+        .get(`/api/audit/org/${orgUuid}`)
+        .set(constants.headers)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('uuid')
+          expect(res.body).to.haveOwnProperty('target_uuid')
+          expect(res.body.target_uuid).to.equal(orgUuid)
+          expect(res.body).to.haveOwnProperty('history')
+          expect(res.body.history).to.be.an('array')
+          expect(res.body.history.length).to.be.at.least(2)
+        })
+    })
+
+    it('Should get last X changes for an organization', async () => {
+      const numberOfChanges = 1
+
+      await chai.request(app)
+        .get(`/api/audit/org/${orgUuid}/${numberOfChanges}`)
+        .set(constants.headers)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('target_uuid')
+          expect(res.body.target_uuid).to.equal(orgUuid)
+          expect(res.body).to.haveOwnProperty('changes')
+          expect(res.body.changes).to.be.an('array')
+          expect(res.body.changes).to.have.lengthOf(numberOfChanges)
+
+          // Verify the change has required fields
+          expect(res.body.changes[0]).to.haveOwnProperty('timestamp')
+          expect(res.body.changes[0]).to.haveOwnProperty('audit_object')
+          expect(res.body.changes[0]).to.haveOwnProperty('change_author')
+        })
+    })
+  })
+
+  context('Negative Tests', () => {
+    it('Should fail to create audit document that already exists', async () => {
+      const auditData = {
+        target_uuid: orgUuid,
+        history: [
+          {
+            audit_object: {
+              ...constants.existingOrg
+            },
+            change_author: changeAuthorUUID
+          }
+        ]
+      }
+
+      await chai.request(app)
+        .post('/api/audit/org/')
+        .set(constants.headers)
+        .send(auditData)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(400)
+
+          expect(res.body).to.haveOwnProperty('error')
+          expect(res.body.error).to.equal('AUDIT_EXISTS')
+        })
+    })
+
+    it('Should fail to create audit with invalid target_uuid format', async () => {
+      const auditData = {
+        target_uuid: 'invalid-uuid',
+        history: []
+      }
+
+      await chai.request(app)
+        .post('/api/audit/org/')
+        .set(constants.headers)
+        .send(auditData)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(400)
+
+          expect(res.body).to.haveOwnProperty('error')
+          expect(res.body.error).to.equal('INVALID_UUID')
+        })
+    })
+
+    it('Should fail to create audit without target_uuid', async () => {
+      const auditData = {
+        history: []
+      }
+
+      await chai.request(app)
+        .post('/api/audit/org/')
+        .set(constants.headers)
+        .send(auditData)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(400)
+
+          expect(res.body).to.haveOwnProperty('error')
+          expect(res.body.error).to.equal('MISSING_REQUIRED_FIELD')
+        })
+    })
+
+    it('Should fail to get audit by non-existent document UUID', async () => {
+      const fakeUUID = uuid.v4()
+
+      await chai.request(app)
+        .get(`/api/audit/org/document/${fakeUUID}`)
+        .set(constants.headers)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(404)
+
+          expect(res.body).to.haveOwnProperty('error')
+          expect(res.body.error).to.equal('AUDIT_DNE_DOCUMENT')
+        })
+    })
+
+    it('Should fail to get last X changes with invalid number', async () => {
+      const invalidNumber = -5
+      await chai.request(app)
+        .get(`/api/audit/org/${orgUuid}/${invalidNumber}`)
+        .set(constants.headers)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(400)
+
+          expect(res.body).to.haveOwnProperty('error')
+          expect(res.body.error).to.equal('INVALID_NUMBER_OF_CHANGES')
+        })
+    })
+
+    it('Should fail to append audit without change_author', async () => {
+      const appendData = {
+        target_uuid: orgUuid,
+        history: [
+          {
+            audit_object: {
+              ...constants.existingOrg
+            }
+          }
+        ]
+      }
+
+      await chai.request(app)
+        .put('/api/audit/org/')
+        .set(constants.headers)
+        .send(appendData)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(400)
+
+          expect(res.body).to.haveOwnProperty('error')
+          expect(res.body.error).to.equal('INVALID_AUDIT_OBJECT')
+        })
+    })
+
+    it('Should fail to create audit when uuid is provided', async () => {
+      const auditData = {
+        uuid: uuid.v4(),
+        target_uuid: uuid.v4(),
+        history: []
+      }
+
+      await chai.request(app)
+        .post('/api/audit/org/')
+        .set(constants.headers)
+        .send(auditData)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(400)
+
+          expect(res.body).to.haveOwnProperty('error')
+          expect(res.body.error).to.equal('UUID_PROVIDED')
+        })
+    })
+  })
+})
