@@ -1,0 +1,99 @@
+/* eslint-disable no-unused-expressions */
+const chai = require('chai')
+const expect = chai.expect
+const ReviewObjectRepository = require('../../../src/repositories/reviewObjectRepository')
+const ReviewObjectModel = require('../../../src/model/reviewobject')
+
+describe('ReviewObjectRepository Tests', function () {
+  let repository
+  let testUUID
+
+  before(async () => {
+    repository = new ReviewObjectRepository()
+
+    // Create a test review object with pending status
+    const pendingReview = new ReviewObjectModel({
+      uuid: 'pending-test-uuid-123',
+      target_object_uuid: 'target-uuid-456',
+      status: 'pending',
+      new_review_data: { short_name: 'pending_org' }
+    })
+    await pendingReview.save()
+
+    // Create a test review object with approved status
+    const approvedReview = new ReviewObjectModel({
+      uuid: 'approved-test-uuid-456',
+      target_object_uuid: 'target-uuid-789',
+      status: 'approved',
+      new_review_data: { short_name: 'approved_org' }
+    })
+    await approvedReview.save()
+
+    testUUID = 'pending-test-uuid-123'
+  })
+
+  after(async () => {
+    // Clean up test data
+    await ReviewObjectModel.deleteMany({
+      uuid: { $in: ['pending-test-uuid-123', 'approved-test-uuid-456'] }
+    })
+  })
+
+  describe('findOneByUUIDWithConversation', function () {
+    it('should return the pending review object when pending=true', async () => {
+      const result = await repository.findOneByUUIDWithConversation(testUUID, true, true)
+
+      expect(result).to.exist
+      expect(result.uuid).to.equal(testUUID)
+      expect(result.status).to.equal('pending')
+    })
+
+    it('should return null when review object not found with pending=true', async () => {
+      const nonExistentUUID = 'non-existent-uuid-999'
+      const result = await repository.findOneByUUIDWithConversation(nonExistentUUID, true, true)
+
+      expect(result).to.be.null
+    })
+
+    it('should return the approved review object when pending=false', async () => {
+      const approvedUUID = 'approved-test-uuid-456'
+      const result = await repository.findOneByUUIDWithConversation(approvedUUID, true, false)
+
+      expect(result).to.exist
+      expect(result.uuid).to.equal(approvedUUID)
+      expect(result.status).to.equal('approved')
+    })
+
+    it('should return the pending review object when pending=false', async () => {
+      const result = await repository.findOneByUUIDWithConversation(testUUID, true, false)
+
+      expect(result).to.exist
+      expect(result.uuid).to.equal(testUUID)
+      expect(result.status).to.equal('pending')
+    })
+
+    it('should return the pending review object with default pending value', async () => {
+      const result = await repository.findOneByUUIDWithConversation(testUUID, true)
+
+      expect(result).to.exist
+      expect(result.uuid).to.equal(testUUID)
+      expect(result.status).to.equal('pending')
+    })
+
+    it('should return the approved review object with default pending value', async () => {
+      const approvedUUID = 'approved-test-uuid-456'
+      const result = await repository.findOneByUUIDWithConversation(approvedUUID, true)
+
+      expect(result).to.exist
+      expect(result.uuid).to.equal(approvedUUID)
+      expect(result.status).to.equal('approved')
+    })
+
+    it('should not return approved review object when pending=true', async () => {
+      const approvedUUID = 'approved-test-uuid-456'
+      const result = await repository.findOneByUUIDWithConversation(approvedUUID, true, true)
+
+      expect(result).to.be.null
+    })
+  })
+})
