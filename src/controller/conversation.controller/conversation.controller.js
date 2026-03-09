@@ -1,0 +1,80 @@
+const mongoose = require('mongoose')
+const logger = require('../../middleware/logger')
+const getConstants = require('../../../src/constants').getConstants
+const CONSTANTS = getConstants()
+
+async function getAllConversations (req, res, next) {
+  const repo = req.ctx.repositories.getConversationRepository()
+
+  // temporary measure to allow tests to work after fixing #920
+  // tests required changing the global limit to force pagination
+  if (req.TEST_PAGINATOR_LIMIT) {
+    CONSTANTS.PAGINATOR_OPTIONS.limit = req.TEST_PAGINATOR_LIMIT
+  }
+
+  const options = CONSTANTS.PAGINATOR_OPTIONS
+  options.sort = { posted_at: 'desc' }
+
+  const response = await repo.getAll(options)
+  return res.status(200).json(response)
+}
+
+async function getConversationsForTargetUUID (req, res, next) {
+  const repo = req.ctx.repositories.getConversationRepository()
+  const targetUUID = req.params.uuid
+
+  const response = await repo.getAllByTargetUUID(targetUUID, true)
+  return res.status(200).json(response)
+}
+
+async function createConversationForTargetUUID (req, res, next) {
+  const session = await mongoose.startSession()
+
+  try {
+    session.startTransaction()
+
+    const repo = req.ctx.repositories.getConversationRepository()
+    const userRepo = req.ctx.repositories.getBaseUserRepository()
+    const requesterOrg = req.ctx.org
+    const requesterUsername = req.ctx.user
+    const targetUUID = req.params.uuid
+    const body = req.body
+
+    const user = await userRepo.findOneByUsernameAndOrgShortname(requesterUsername, requesterOrg, { session })
+
+    if (!body.body) {
+      return res.status(400).json({ message: 'Missing required field body' })
+    }
+
+    const result = await repo.createConversation(targetUUID, body, user, true, { session })
+    await session.commitTransaction()
+    if (!result) {
+      return res.status(500).json({ message: 'Failed to create conversation' })
+    }
+    return res.status(200).json(result)
+  } catch (err) {
+    if (session && session.inTransaction()) {
+      await session.abortTransaction()
+    }
+    next(err)
+  } finally {
+    if (session && session.id) {
+      // Check if session is still valid before trying to end
+      try {
+        await session.endSession()
+      } catch (sessionEndError) {
+        logger.error({
+          uuid: req.ctx.uuid,
+          message: 'Error ending session in finally block',
+          error: sessionEndError
+        })
+      }
+    }
+  }
+}
+
+module.exports = {
+  getAllConversations,
+  getConversationsForTargetUUID,
+  createConversationForTargetUUID
+}

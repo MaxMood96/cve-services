@@ -1,0 +1,500 @@
+const chai = require('chai')
+chai.use(require('chai-http'))
+const expect = chai.expect
+const { faker } = require('@faker-js/faker')
+
+const constants = require('../constants.js')
+const app = require('../../../src/index.js')
+const MAX_SHORTNAME_LENGTH = 32
+/**
+ * Unit Tests for testing regular user permissions for Org and User /api/registry/org
+ */
+
+describe('Testing regular user permissions for /api/registry/org/ endpoints with ', () => {
+  // Testing USER PUT Endpoints for regular users with /api/registry/org
+  describe('Testing USER PUT endpoint ', () => {
+    /* Positive Tests */
+    context('Positive Test', () => {
+      it('regular user can update their name', async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders['CVE-API-USER']
+
+        let previousBody
+        await chai.request(app).get(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .then((res) => { previousBody = res.body })
+
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send(
+            {
+              ...previousBody,
+              name: {
+                first: 'aaa',
+                last: 'bbb',
+                middle: 'ccc',
+                suffix: 'ddd'
+              }
+            }
+          )
+          .then((res) => {
+            expect(res).to.have.status(200)
+            expect(res.body.updated.name.first).contain('aaa')
+            expect(res.body.updated.name.last).contain('bbb')
+            expect(res.body.updated.name.middle).contain('ccc')
+            expect(res.body.updated.name.suffix).contain('ddd')
+          })
+      })
+      it('regular users can update their secret ', async () => {
+        const org = constants.nonSecretariatUserHeaders3['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders3['CVE-API-USER']
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}/reset_secret`)
+          .set(constants.nonSecretariatUserHeaders3)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(200)
+            expect(res.body).to.have.property('API-secret')
+          })
+      })
+    })
+    /* Negative Tests */
+    context('Negative Test', () => {
+      it('regular user cannot update their username', async () => {
+        const newUsername = faker.datatype.uuid()
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders['CVE-API-USER']
+
+        let previousBody
+        await chai.request(app).get(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .then((res) => { previousBody = res.body })
+
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+            ...previousBody,
+            username: newUsername
+          })
+          .then((res) => {
+            // NOTE: We are changing this error message to be more succinct
+            expect(res.body.error).to.contain('NOT_ALLOWED_TO_CHANGE_FIELD')
+            expect(res).to.have.status(400)
+          })
+      })
+      it('regular user cannot update information of another user of the same organization', async () => {
+        const newUsername = faker.datatype.uuid()
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user2 = constants.nonSecretariatUserHeaders2['CVE-API-USER']
+
+        let previousBody
+        await chai.request(app).get(`/api/registry/org/${org}/user/${user2}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .then((res) => { previousBody = res.body })
+
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user2}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+            ...previousBody,
+            username: newUsername
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_SAME_USER_OR_SECRETARIAT')
+          })
+      })
+      it("regular users cannot update a user's username if that user already exists", async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user1 = constants.nonSecretariatUserHeaders['CVE-API-USER']
+        const user2 = constants.nonSecretariatUserHeaders2['CVE-API-USER']
+        let previousBody
+        await chai.request(app).get(`/api/registry/org/${org}/user/${user1}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .then((res) => { previousBody = res.body })
+
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user1}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+            ...previousBody,
+            username: user2
+          })
+          .then((res) => {
+            expect(res).to.have.status(400)
+            expect(res.body.error).to.contain('NOT_ALLOWED_TO_CHANGE_FIELD')
+          })
+      })
+      it('regular users cannot update organization', async () => {
+        const org1 = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders['CVE-API-USER']
+        const org2 = faker.datatype.uuid().slice(0, MAX_SHORTNAME_LENGTH)
+
+        let previousBody
+        await chai.request(app).get(`/api/registry/org/${org1}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .then((res) => { previousBody = res.body })
+
+        await chai.request(app)
+          .put(`/api/registry/org/${org1}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+            ...previousBody,
+            org_short_name: org2
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_ALLOWED_TO_CHANGE_ORGANIZATION')
+          })
+      })
+      it('regular user cannot change its own active state', async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders['CVE-API-USER']
+
+        let previousBody
+        await chai.request(app).get(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .then((res) => { previousBody = res.body })
+
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+            ...previousBody,
+            status: 'inactive'
+          })
+          .then((res) => {
+            expect(res).to.have.status(400)
+            expect(res.body.error).to.contain('NOT_ALLOWED_TO_CHANGE_FIELD')
+          })
+      })
+      it('regular users cannot add role', async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders['CVE-API-USER']
+        await chai.request(app)
+          .post(`/api/registry/org/${org}/user/${user}/grant-role`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+            role: 'ADMIN'
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_ORG_ADMIN_OR_SECRETARIAT_UPDATE')
+          })
+      })
+      it('regular users cannot remove role', async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders['CVE-API-USER']
+        await chai.request(app)
+          .post(`/api/registry/org/${org}/user/${user}/revoke-role`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+            role: 'ADMIN'
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_ORG_ADMIN_OR_SECRETARIAT_UPDATE')
+          })
+      })
+      it("regular user cannot update a user from an org that doesn't exist", async () => {
+        const org = faker.datatype.uuid().slice(0, MAX_SHORTNAME_LENGTH)
+        const user = constants.nonSecretariatUserHeaders['CVE-API-USER']
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(404)
+            expect(res.body.error).to.contain('ORG_DNE_PARAM')
+          })
+      })
+      it("regular user cannot update a user that doesn't exist ", async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = faker.datatype.uuid()
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(404)
+            expect(res.body.error).to.contain('USER_DNE')
+          })
+      })
+      it('regular user cannot update the secret of another user', async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders2['CVE-API-USER']
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}/reset_secret`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_SAME_USER_OR_SECRETARIAT')
+          })
+      })
+      it("regular user cannot reset the secret of a user from an org that doesn't exist", async () => {
+        const org = faker.datatype.uuid().slice(0, MAX_SHORTNAME_LENGTH)
+        const user = constants.nonSecretariatUserHeaders['CVE-API-USER']
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}/reset_secret`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(404)
+            expect(res.body.error).to.contain('ORG_DNE_PARAM')
+          })
+      })
+      it("regular user cannot reset the secret of a user that doesn't exist", async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = faker.datatype.uuid()
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}/reset_secret`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(404)
+            expect(res.body.error).to.contain('USER_DNE')
+          })
+      })
+      it("regular user tries resetting admin user's secret, fails and admin user's role remains preserved", async () => {
+        const org = constants.nonSecretariatUserHeaders2['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders2['CVE-API-USER']
+        await chai.request(app)
+          .put(`/api/registry/org/${org}/user/${user}/reset_secret`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_SAME_USER_OR_SECRETARIAT')
+          })
+        /* Commenting out since authority.active_roles are not returned in the GET request response for registry=true */
+        // await chai.request(app)
+        //   .get(`/api/org/${org}/user/${user}?registry=true`)
+        //   .set(constants.nonSecretariatUserHeaders2)
+        //   .send({
+        //   })
+        //   .then((res) => {
+        //     expect(res).to.have.status(200)
+        //     console.log(res.body)
+        //   })
+      })
+    })
+  })
+  // Testing USER POST Endpoints for regular users with /api/registry/org
+  describe('Testing USER POST endpoint', () => {
+    /* Negative Tests */
+    context('Negative Test', () => {
+      it('regular user cannot create another user', async () => {
+        const newUsername = faker.datatype.uuid()
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        await chai.request(app)
+          .post(`/api/registry/org/${org}/user`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+            username: newUsername
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_ORG_ADMIN_OR_SECRETARIAT')
+          })
+      })
+    })
+  })
+  // Testing USER GET Endpoints for regular users with /api/registry/org
+  describe('Testing USER GET endpoint with /api/registry/org', () => {
+    /* Positive Tests */
+    context('Positive Test', () => {
+      it('regular users can view users of the same organization', async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        await chai.request(app)
+          .get(`/api/registry/org/${org}/users`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(200)
+            expect(res.body.users).to.have.lengthOf.above(0)
+          })
+      })
+      it('regular users can view user of the same organization ', async () => {
+        const org = constants.nonSecretariatUserHeaders2['CVE-API-ORG']
+        const user2 = constants.nonSecretariatUserHeaders2['CVE-API-USER']
+        await chai.request(app)
+          .get(`/api/registry/org/${org}/user/${user2}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(200)
+            expect(res.body.username).to.have.lengthOf.above(0)
+          })
+      })
+    })
+    /* Negative Tests */
+    context('Negative Test', () => {
+      it("regular users cannot view users of an organization that doesn't exist", async () => {
+        const org = faker.datatype.uuid().slice(0, MAX_SHORTNAME_LENGTH)
+        await chai.request(app)
+          .get(`/api/registry/org/${org}/users`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(404)
+            expect(res.body.error).to.contain('ORG_DNE_PARAM')
+          })
+      })
+      it('regular users cannot view users of another organization', async () => {
+        const org = constants.nonSecretariatUserHeaders3['CVE-API-ORG']
+        await chai.request(app)
+          .get(`/api/registry/org/${org}/users`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_SAME_ORG_OR_SECRETARIAT')
+          })
+      })
+      it('regular users cannot view users from another organization', async () => {
+        const org = constants.nonSecretariatUserHeaders3['CVE-API-ORG']
+        const user = constants.nonSecretariatUserHeaders3['CVE-API-USER']
+        await chai.request(app)
+          .get(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_SAME_ORG_OR_SECRETARIAT')
+          })
+      })
+      it("regular user cannot view user that doesn't exist", async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        const user = faker.datatype.uuid()
+        await chai.request(app)
+          .get(`/api/registry/org/${org}/user/${user}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(404)
+            expect(res.body.error).to.contain('USER_DNE')
+          })
+      })
+    })
+  })
+  // Testing ORG PUT Endpoints for regular users with /api/registry/org
+  describe('Testing ORG PUT endpoint with /api/registry/org', () => {
+    /* Negative Tests */
+    context('Negative Test', () => {
+      it('regular user cannot update an organization', async () => {
+        const org = faker.datatype.uuid().slice(0, MAX_SHORTNAME_LENGTH)
+        await chai.request(app)
+          .put(`/api/registry/org/${org}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_SAME_ORG_OR_SECRETARIAT')
+          })
+      })
+    })
+  })
+  // Testing ORG POST Endpoints for regular users with /api/registry/org
+  describe('Testing ORG POST endpoint with /api/registry/org', () => {
+    context('Negative Test', () => {
+      it('regular users cannot create new org', async () => {
+        await chai.request(app)
+          .post('/api/registry/org')
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('SECRETARIAT_ONLY')
+          })
+      })
+    })
+  })
+  // Testing ORG GET Endpoints for regular users
+  describe('Testing Registry ORG GET', () => {
+    /* Positive Tests */
+    context('Positive Test', () => {
+      it('regular users can view the organization they belong to', async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        await chai.request(app)
+          .get(`/api/registry/org/${org}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(200)
+            expect(res.body.short_name).to.equal(org)
+          })
+      })
+      it("regular users can see their organization's cve id quota", async () => {
+        const org = constants.nonSecretariatUserHeaders['CVE-API-ORG']
+        await chai.request(app)
+          .get(`/api/registry/org/${org}/hard_quota`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(200)
+            expect(res.body.hard_quota).to.be.greaterThan(0)
+            expect(res.body.total_reserved).to.be.greaterThan(0)
+            expect(res.body.available).to.be.greaterThan(0)
+          })
+      })
+    })
+    /* Negative Tests */
+    context('Negative Test', () => {
+      it("regular users cannot view an organization they don't belong to", async () => {
+        const org = faker.datatype.uuid().slice(0, MAX_SHORTNAME_LENGTH)
+        await chai.request(app)
+          .get(`/api/registry/org/${org}`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_SAME_ORG_OR_SECRETARIAT')
+          })
+      })
+      it('regular users cannot view all organizations', async () => {
+        await chai.request(app)
+          .get('/api/registry/org')
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('SECRETARIAT_ONLY')
+          })
+      })
+      it("regular users cannot see an organization's cve id quota they don't belong to", async () => {
+        const org = constants.nonSecretariatUserHeaders3['CVE-API-ORG']
+        await chai.request(app)
+          .get(`/api/registry/org/${org}/hard_quota`)
+          .set(constants.nonSecretariatUserHeaders)
+          .send({
+          })
+          .then((res) => {
+            expect(res).to.have.status(403)
+            expect(res.body.error).to.contain('NOT_SAME_ORG_OR_SECRETARIAT')
+          })
+      })
+    })
+  })
+})

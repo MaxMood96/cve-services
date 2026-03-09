@@ -1,0 +1,165 @@
+/* eslint-disable no-unused-expressions */
+
+const chai = require('chai')
+const expect = chai.expect
+chai.use(require('chai-http'))
+
+const constants = require('../constants.js')
+const app = require('../../../src/index.js')
+
+describe('Testing Conversation endpoints', () => {
+  let orgUUID
+  let secUserUUID
+  let rootConvoUUID
+
+  before(async () => {
+    await chai
+      .request(app)
+      .get('/api/registry/org/win_5')
+      .set(constants.headers)
+      .then((res, err) => {
+        expect(err).to.be.undefined
+        expect(res).to.have.status(200)
+        orgUUID = res.body.UUID
+      })
+
+    await chai
+      .request(app)
+      .get('/api/registry/org/mitre/user/test_secretariat_0@mitre.org')
+      .set(constants.headers)
+      .then((res, err) => {
+        expect(err).to.be.undefined
+        expect(res).to.have.status(200)
+        secUserUUID = res.body.UUID
+      })
+  })
+
+  context('Positive Tests', () => {
+    it('Should create a public conversation as Secretariat', async () => {
+      const conversation = {
+        visibility: 'public',
+        body: 'test'
+      }
+      await chai.request(app)
+        .post(`/api/conversation/target/${orgUUID}`)
+        .set(constants.headers)
+        .send(conversation)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('UUID')
+          rootConvoUUID = res.body.UUID
+
+          expect(res.body).to.haveOwnProperty('target_uuid')
+          expect(res.body.target_uuid).to.equal(orgUUID)
+
+          expect(res.body).to.haveOwnProperty('previous_conversation_uuid')
+          expect(res.body.previous_conversation_uuid).to.be.null
+          expect(res.body).to.haveOwnProperty('next_conversation_uuid')
+          expect(res.body.next_conversation_uuid).to.be.null
+
+          expect(res.body).to.haveOwnProperty('author_id')
+          expect(res.body.author_id).to.equal(secUserUUID)
+
+          expect(res.body).to.haveOwnProperty('author_name')
+          expect(res.body.author_name).to.equal('Unknown User')
+
+          expect(res.body).to.haveOwnProperty('author_role')
+          expect(res.body.author_role).to.equal('Secretariat')
+
+          expect(res.body).to.haveOwnProperty('visibility')
+          expect(res.body.visibility).to.equal('public')
+
+          expect(res.body).to.haveOwnProperty('body')
+          expect(res.body.body).to.equal('test')
+        })
+    })
+    it('Should append a private conversation as Secretariat', async () => {
+      const conversation = {
+        visibility: 'private',
+        body: 'test 2'
+      }
+      const res = await chai
+        .request(app)
+        .post(`/api/conversation/target/${orgUUID}`)
+        .set(constants.headers)
+        .send(conversation)
+
+      expect(res).to.have.status(200)
+
+      expect(res.body).to.haveOwnProperty('UUID')
+      const secondUUID = res.body.UUID
+
+      expect(res.body).to.haveOwnProperty('target_uuid')
+      expect(res.body.target_uuid).to.equal(orgUUID)
+
+      expect(res.body).to.haveOwnProperty('visibility')
+      expect(res.body.visibility).to.equal('private')
+
+      const convoRes = await chai.request(app)
+        .get(`/api/conversation/target/${orgUUID}`)
+        .set(constants.headers)
+
+      expect(convoRes).to.have.status(200)
+
+      expect(convoRes.body).to.be.an('array')
+      expect(convoRes.body).to.have.lengthOf(2)
+
+      const rootMessage = convoRes.body.filter(convo => convo.UUID === rootConvoUUID)[0]
+      expect(rootMessage).to.exist
+      expect(rootMessage.previous_conversation_uuid).to.be.null
+      expect(rootMessage.next_conversation_uuid).to.be.equal(secondUUID)
+
+      expect(res.body).to.haveOwnProperty('previous_conversation_uuid')
+      expect(res.body.previous_conversation_uuid).to.be.equal(rootConvoUUID)
+      expect(res.body).to.haveOwnProperty('next_conversation_uuid')
+      expect(res.body.next_conversation_uuid).to.be.null
+    })
+    it('Should get all conversations', async () => {
+      await chai.request(app)
+        .get('/api/conversation')
+        .set(constants.headers)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('conversations')
+          expect(res.body.conversations).to.be.an('array')
+          expect(res.body.conversations).to.have.lengthOf(2)
+        })
+    })
+    it('Should get and see all conversations for target UUID as Secretariat', async () => {
+      await chai.request(app)
+        .get(`/api/conversation/target/${orgUUID}`)
+        .set(constants.headers)
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.be.an('array')
+          expect(res.body).to.have.lengthOf(2)
+          res.body.forEach(convo => {
+            expect(convo).to.haveOwnProperty('target_uuid')
+            expect(convo.target_uuid).to.equal(orgUUID)
+          })
+        })
+    })
+  })
+
+  context('Negative Tests', () => {
+    it('Should fail to post a conversation with no body', async () => {
+      await chai.request(app)
+        .post(`/api/conversation/target/${orgUUID}`)
+        .set(constants.headers)
+        .send({})
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(400)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.equal('Missing required field body')
+        })
+    })
+  })
+})
