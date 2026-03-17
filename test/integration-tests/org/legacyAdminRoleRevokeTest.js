@@ -1,0 +1,94 @@
+/* eslint-disable mocha/no-setup-in-describe */
+/* eslint-disable camelcase */
+/* eslint-disable no-unused-expressions */
+const chai = require('chai')
+chai.use(require('chai-http'))
+const { expect } = chai
+
+const app = require('../../../src/index.js')
+const constants = require('../constants.js')
+
+const secretariatHeaders = { ...constants.headers, 'content-type': 'application/json' }
+
+const postNewUser = async (orgShortName, username) => {
+  return chai.request(app)
+    .post(`/api/registry/org/${orgShortName}/user`)
+    .set(secretariatHeaders)
+    .send({
+      username
+    })
+}
+
+describe('Legacy Admin Role Grant and Revoke Test', () => {
+  it('Should successfully add ADMIN role via legacy endpoint and revoke it, reflecting in both collections', async () => {
+    const orgShortName = 'test_org_admin_revoke'
+    const username = 'test_user_admin_revoke'
+
+    // 1. Create an Org
+    await chai.request(app)
+      .post('/api/registry/org')
+      .set(secretariatHeaders)
+      .send({
+        short_name: orgShortName,
+        long_name: orgShortName,
+        authority: ['CNA'],
+        hard_quota: 1000
+      })
+      .then((res) => {
+        expect(res).to.have.status(200)
+      })
+
+    // 2. Create a user in that org
+    await postNewUser(orgShortName, username)
+      .then((res) => {
+        expect(res).to.have.status(200)
+      })
+
+    // 3. Give that org admin with the legacy endpoint
+    await chai.request(app)
+      .put(`/api/org/${orgShortName}/user/${username}?active_roles.add=ADMIN`)
+      .set(secretariatHeaders)
+      .then((res) => {
+        expect(res).to.have.status(200)
+        expect(res.body.updated.authority.active_roles).to.include('ADMIN')
+      })
+
+    // Check Registry Endpoint to ensure they became admin
+    await chai.request(app)
+      .get(`/api/registry/org/${orgShortName}/user/${username}`)
+      .set(secretariatHeaders)
+      .then((res) => {
+        expect(res).to.have.status(200)
+        expect(res.body.role).to.equal('ADMIN')
+      })
+
+    // 4. Remove that user's admin with `revoke-role`
+    await chai.request(app)
+      .post(`/api/registry/org/${orgShortName}/user/${username}/revoke-role`)
+      .set(secretariatHeaders)
+      .send({ role: 'ADMIN' })
+      .then((res) => {
+        expect(res).to.have.status(200)
+        expect(res.body.message).to.contain('Role ADMIN revoked from user')
+      })
+
+    // // 5. Ensure that they are not admin in both collections
+    // // Check Registry Endpoint
+    await chai.request(app)
+      .get(`/api/registry/org/${orgShortName}/user/${username}`)
+      .set(secretariatHeaders)
+      .then((res) => {
+        expect(res).to.have.status(200)
+        expect(res.body.role).to.not.equal('ADMIN')
+      })
+
+    // // Check Legacy Endpoint
+    await chai.request(app)
+      .get(`/api/org/${orgShortName}/user/${username}`)
+      .set(secretariatHeaders)
+      .then((res) => {
+        expect(res).to.have.status(200)
+        expect(res.body.authority.active_roles).to.not.include('ADMIN')
+      })
+  })
+})
