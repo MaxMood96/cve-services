@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cve.mitre.org/schema/conversation/update-conversation-response.json",
+  "type": "object",
+  "title": "Update Conversation Response",
+  "description": "JSON Schema for the response when updating a conversation",
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "Response message"
+    },
+    "conversation": {
+      "$ref": "conversation.json",
+      "description": "The updated conversation message"
+    }
+  }
+}
