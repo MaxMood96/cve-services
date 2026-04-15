@@ -1,0 +1,227 @@
+/* eslint-disable no-unused-expressions */
+
+const chai = require('chai')
+const expect = chai.expect
+chai.use(require('chai-http'))
+
+const constants = require('../constants.js')
+const app = require('../../../src/index.js')
+
+const orgAdminHeaders = {
+  ...constants.headers,
+  'CVE-API-ORG': 'activity_6',
+  'CVE-API-Key': 'TCF25YM-39C4H6D-KA32EGF-V5XSHN3',
+  'CVE-API-USER': 'activity_6_admin@activity_6.com'
+}
+
+describe('Testing Conversation endpoints', () => {
+  let org
+  let secUserUUID
+  let orgAdminUUID
+  // let rootConvoUUID
+
+  before(async () => {
+    await chai
+      .request(app)
+      .get('/api/registry/org/activity_6')
+      .set(constants.headers)
+      .then((res, err) => {
+        expect(err).to.be.undefined
+        expect(res).to.have.status(200)
+        org = res.body
+      })
+
+    await chai
+      .request(app)
+      .get('/api/registry/org/mitre/user/test_secretariat_0@mitre.org')
+      .set(constants.headers)
+      .then((res, err) => {
+        expect(err).to.be.undefined
+        expect(res).to.have.status(200)
+        secUserUUID = res.body.UUID
+      })
+
+    await chai
+      .request(app)
+      .get('/api/registry/org/activity_6/user/activity_6_admin@activity_6.com')
+      .set(constants.headers)
+      .then((res, err) => {
+        expect(err).to.be.undefined
+        expect(res).to.have.status(200)
+        orgAdminUUID = res.body.UUID
+      })
+
+    // Do org update to create conversation as admin
+    await chai
+      .request(app)
+      .put('/api/registry/org/activity_6')
+      .set(orgAdminHeaders)
+      .send({
+        ...org,
+        long_name: 'Activity 6 test',
+        conversation: {
+          body: 'admin test'
+        }
+      })
+      .then((res, err) => {
+        expect(err).to.be.undefined
+        expect(res).to.have.status(200)
+      })
+
+    // Post conversation as Secretariat
+    await chai
+      .request(app)
+      .post(`/api/conversation/target/${org.UUID}`)
+      .set(constants.headers)
+      .send({
+        body: 'secretariat test',
+        visibility: 'public'
+      })
+      .then((res, err) => {
+        expect(err).to.be.undefined
+        expect(res).to.have.status(200)
+      })
+  })
+
+  context('Positive Tests', () => {
+    it('Should update own conversation as org admin', async () => {
+      await chai.request(app)
+        .put('/api/registry/org/activity_6/conversation/0')
+        .set(orgAdminHeaders)
+        .send({
+          body: 'admin test updated'
+        })
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.equal('The conversation was successfully updated.')
+
+          expect(res.body).to.haveOwnProperty('updated')
+
+          expect(res.body.updated).to.haveOwnProperty('body')
+          expect(res.body.updated.body).to.equal('admin test updated')
+
+          expect(res.body.updated).to.haveOwnProperty('editor_id')
+          expect(res.body.updated.editor_id).to.equal(orgAdminUUID)
+
+          expect(res.body.updated).to.haveOwnProperty('edited_at')
+          expect(res.body.updated.edited_at).to.not.be.null
+
+          expect(res.body.updated).to.haveOwnProperty('visibility')
+          expect(res.body.updated.visibility).to.equal('public')
+        })
+    })
+    it('Should update body and visibility of own conversation as Secretariat', async () => {
+      await chai.request(app)
+        .put('/api/registry/org/activity_6/conversation/1')
+        .set(constants.headers)
+        .send({
+          body: 'secretariat test updated',
+          visibility: 'private'
+        })
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.equal('The conversation was successfully updated.')
+
+          expect(res.body).to.haveOwnProperty('updated')
+
+          expect(res.body.updated).to.haveOwnProperty('body')
+          expect(res.body.updated.body).to.equal('secretariat test updated')
+
+          expect(res.body.updated).to.haveOwnProperty('editor_id')
+          expect(res.body.updated.editor_id).to.equal(secUserUUID)
+
+          expect(res.body.updated).to.haveOwnProperty('edited_at')
+          expect(res.body.updated.edited_at).to.not.be.null
+
+          expect(res.body.updated).to.haveOwnProperty('visibility')
+          expect(res.body.updated.visibility).to.equal('private')
+        })
+    })
+    it('Should update body and visibility of conversation not owned by Secretariat', async () => {
+      await chai.request(app)
+        .put('/api/registry/org/activity_6/conversation/0')
+        .set(constants.headers)
+        .send({
+          body: 'admin test updated by secretariat',
+          visibility: 'private'
+        })
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(200)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.equal('The conversation was successfully updated.')
+
+          expect(res.body).to.haveOwnProperty('updated')
+
+          expect(res.body.updated).to.haveOwnProperty('body')
+          expect(res.body.updated.body).to.equal('admin test updated by secretariat')
+
+          expect(res.body.updated).to.haveOwnProperty('editor_id')
+          expect(res.body.updated.editor_id).to.equal(secUserUUID)
+
+          expect(res.body.updated).to.haveOwnProperty('edited_at')
+          expect(res.body.updated.edited_at).to.not.be.null
+
+          expect(res.body.updated).to.haveOwnProperty('visibility')
+          expect(res.body.updated.visibility).to.equal('private')
+        })
+    })
+  })
+
+  context('Negative Tests', () => {
+    it('Should fail to update a conversation at an invalid index', async () => {
+      await chai
+        .request(app)
+        .put('/api/registry/org/activity_6/conversation/5')
+        .set(constants.headers)
+        .send({
+          body: 'test'
+        })
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(404)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.equal('The conversation at index 5 does not exist for the activity_6 organization.')
+        })
+    })
+    it('Should fail if admin tries to update a conversation they do not own', async () => {
+      await chai.request(app)
+        .put('/api/registry/org/activity_6/conversation/1')
+        .set(orgAdminHeaders)
+        .send({
+          body: 'test'
+        })
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(403)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.equal('You must be the original author or Secretariat to edit this conversation.')
+        })
+    })
+    it('Should fail if admin tries to update the visibility of their conversation', async () => {
+      await chai.request(app)
+        .put('/api/registry/org/activity_6/conversation/0')
+        .set(orgAdminHeaders)
+        .send({
+          body: 'test',
+          visibility: 'private'
+        })
+        .then((res, err) => {
+          expect(err).to.be.undefined
+          expect(res).to.have.status(403)
+
+          expect(res.body).to.haveOwnProperty('message')
+          expect(res.body.message).to.equal('Only the Secretariat is allowed to change the visibility of a conversation.')
+        })
+    })
+  })
+})
